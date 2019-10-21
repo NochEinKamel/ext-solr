@@ -543,12 +543,17 @@ class Indexer extends AbstractIndexer
         $defaultLanguageUid = $this->getDefaultLanguageUid($item, $site->getRootPage(), $siteLanguages);
         $translationOverlays = $this->getTranslationOverlaysWithConfiguredSite((int)$pageId, $site, (array)$siteLanguages);
 
-        $defaultConnection = $this->connectionManager->getConnectionByPageId($pageId, 0, $item->getMountPointIdentifier());
-        $translationConnections = $this->getConnectionsForIndexableLanguages($translationOverlays);
+        try {
+            $defaultConnection = $this->connectionManager->getConnectionByPageId($pageId, 0, $item->getMountPointIdentifier());
 
-        if ($defaultLanguageUid == 0) {
-            $solrConnections[0] = $defaultConnection;
+            if ($defaultLanguageUid == 0) {
+                $solrConnections[0] = $defaultConnection;
+            }
+        } catch (NoSolrConnectionFoundException $nscfe) {
+          // there is no default solr connection if language 0 is disabled?
         }
+
+        $translationConnections = $this->getConnectionsForIndexableLanguages($translationOverlays);
 
         foreach ($translationConnections as $systemLanguageUid => $solrConnection) {
             $solrConnections[$systemLanguageUid] = $solrConnection;
