@@ -564,42 +564,56 @@ class Indexer extends AbstractIndexer
     /**
      * @param int $pageId
      * @param Site $site
-     * @param array $siteLanguages
+     * @param array $enabledSiteLanguages All enabled site languages (Visible in Frontend)
      * @return array
      */
-    protected function getTranslationOverlaysWithConfiguredSite(int $pageId, Site $site, array $siteLanguages): array
+    protected function getTranslationOverlaysWithConfiguredSite(int $pageId, Site $site, array $enabledSiteLanguages): array
     {
-        $translationOverlays = $this->pagesRepository->findTranslationOverlaysByPageId($pageId);
-        $translatedLanguages = [];
-        foreach ($translationOverlays as $key => $translationOverlay) {
-            if (!in_array($translationOverlay['sys_language_uid'], $siteLanguages)) {
-                unset($translationOverlays[$key]);
-            } else {
-                $translatedLanguages[] = (int)$translationOverlay['sys_language_uid'];
-            }
+      /** @var array $translationOverlays All languages which are translated by editors */
+      $translationOverlays = $this->pagesRepository->findTranslationOverlaysByPageId($pageId);
+      $translationOverlaysByKey = [];
+      foreach ($translationOverlays as $overlay) {
+        $translationOverlaysByKey[$overlay['sys_language_uid']] = $overlay;
+      }
+
+      // Return value => Translation overlays for all enabled languages which are either directly translated or have a translated fallback
+      $enabledLanguagesOverlays = [];
+
+      foreach ($enabledSiteLanguages as $languageId) {
+        // Check if the language is directly translated; i.e. a overlay exists
+        if (array_key_exists($languageId, $translationOverlaysByKey)) {
+          // Only return that overlay if the language is in the enabled languages
+          if (in_array($languageId, $enabledSiteLanguages, true)) {
+            $enabledLanguagesOverlays[] = $translationOverlaysByKey[$languageId];
+          }
+          continue;
         }
 
-        if (count($translationOverlays) + 1 !== count($siteLanguages)) {
-            // not all Languages are translated
-            // add Language Fallback
-            foreach ($siteLanguages as $languageId) {
-                if ($languageId !== 0 && !in_array((int)$languageId, $translatedLanguages, true)) {
-                    $fallbackLanguageIds = $site->getFallbackOrder((int)$languageId);
-                    foreach ($fallbackLanguageIds as $fallbackLanguageId) {
-                        if ($fallbackLanguageId === 0 || in_array((int)$fallbackLanguageId, $translatedLanguages, true)) {
-                            $translationOverlay = [
-                                'pid' => $pageId,
-                                'sys_language_uid' => $languageId,
-                                'l10n_parent' => $pageId
-                            ];
-                            $translationOverlays[] = $translationOverlay;
-                            continue 2;
-                        }
-                    }
-                }
-            }
+        // If not, check the fallbacks
+        $fallbackLanguageIds = $site->getFallbackOrder((int)$languageId);
+        foreach ($fallbackLanguageIds as $fallbackId) {
+          // Overlay exists for the fallback language
+          if (array_key_exists($fallbackId, $translationOverlaysByKey)) {
+            $enabledLanguagesOverlays[] = [
+              'pid' => $pageId, // page pid should be the parent
+              'l10n_parent' => $pageId,
+              'sys_language_uid' => $languageId
+            ];
+          }
+          // or fallback language is the default language
+          // Language Fallback filtering is handled in PageIndexer
+          else if ($fallbackId === 0) {
+            $enabledLanguagesOverlays[] = [
+              'pid' => $pageId, // page pid should be the parent not the uid
+              'l10n_parent' => $pageId,
+              'sys_language_uid' => $languageId
+            ];
+            continue 2;
+          }
         }
-        return $translationOverlays;
+      }
+
+      return $enabledLanguagesOverlays;
     }
 
 
